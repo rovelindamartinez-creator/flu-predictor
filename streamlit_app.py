@@ -1,56 +1,56 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
+import requests
+import datetime
 import matplotlib.pyplot as plt
 
-st.title("🦠 Predicting and Mapping Flu Outbreaks in Cauayan City")
-st.write("Upload flu and weather datasets to generate predictions and insights.")
+st.title("Flu Prediction Dashboard with Live Weather Data 🌦️")
 
-# Upload datasets
-flu_file = st.file_uploader("📄 Upload Flu Cases CSV", type=["csv"])
-weather_file = st.file_uploader("🌦️ Upload Weather Data CSV", type=["csv"])
+# Step 1: Upload flu data
+flu_file = st.file_uploader("Upload your flu dataset (CSV)", type="csv")
 
-if flu_file and weather_file:
-    flu = pd.read_csv(flu_file)
-    weather = pd.read_csv(weather_file)
-    
-    st.success("✅ Data successfully loaded!")
-    st.write("### Flu Data Preview")
-    st.dataframe(flu.head())
-    st.write("### Weather Data Preview")
-    st.dataframe(weather.head())
+if flu_file:
+    flu_data = pd.read_csv(flu_file)
+    flu_data['Date'] = pd.to_datetime(flu_data['Date'])
+    st.write("📅 Flu Data Preview:")
+    st.dataframe(flu_data.head())
 
-    # Ensure Date columns are consistent
-    flu['Date'] = pd.to_datetime(flu['Date'])
-    weather['Date'] = pd.to_datetime(weather['Date'])
+    # Step 2: Get weather data automatically
+    st.write("🌤 Fetching weather data for Cauayan City, Isabela...")
 
-    # Merge datasets by Date and Barangay
-    merged = pd.merge(flu, weather, on=["Date", "Barangay"], how="inner")
+    start_date = flu_data['Date'].min().strftime("%Y-%m-%d")
+    end_date = flu_data['Date'].max().strftime("%Y-%m-%d")
 
-    # --- Simple AI Logic for Prediction ---
-    # (This simulates prediction until we train a real model)
-    merged['Predicted_Cases'] = (
-        merged['Flu_Cases'] +
-        0.02 * merged['Rainfall_mm'] +
-        0.5 * (merged['Temperature_C'] - 28)
-    ).round().astype(int)
+    url = f"https://archive-api.open-meteo.com/v1/archive?latitude=16.93&longitude=121.77&start_date={start_date}&end_date={end_date}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=Asia/Manila"
 
-    st.write("### 🧠 Predicted Flu Cases")
-    st.dataframe(merged[['Date', 'Barangay', 'Flu_Cases', 'Predicted_Cases']])
+    response = requests.get(url)
+    if response.status_code == 200:
+        weather_json = response.json()
+        weather_data = pd.DataFrame({
+            "Date": weather_json["daily"]["time"],
+            "Temp_Max": weather_json["daily"]["temperature_2m_max"],
+            "Temp_Min": weather_json["daily"]["temperature_2m_min"],
+            "Rainfall": weather_json["daily"]["precipitation_sum"]
+        })
+        weather_data["Date"] = pd.to_datetime(weather_data["Date"])
 
-    # --- Visualization ---
-    st.write("### 📊 Trend of Predicted Cases per Barangay")
-    barangay = st.selectbox("Select Barangay:", merged['Barangay'].unique())
+        # Step 3: Merge both datasets
+        combined = pd.merge(flu_data, weather_data, on="Date", how="inner")
 
-    barangay_data = merged[merged['Barangay'] == barangay]
+        st.write("🧩 Combined Data:")
+        st.dataframe(combined.head())
 
-    plt.figure(figsize=(8, 4))
-    plt.plot(barangay_data['Date'], barangay_data['Flu_Cases'], marker='o', label='Actual')
-    plt.plot(barangay_data['Date'], barangay_data['Predicted_Cases'], marker='x', label='Predicted')
-    plt.title(f"Flu Trend in {barangay}")
-    plt.xlabel("Date")
-    plt.ylabel("Number of Cases")
-    plt.legend()
-    st.pyplot(plt)
+        # Step 4: Visualization
+        st.write("📊 Flu Cases vs Temperature")
+        fig, ax1 = plt.subplots()
+        ax1.plot(combined["Date"], combined["Cases"], color="red", label="Flu Cases")
+        ax2 = ax1.twinx()
+        ax2.plot(combined["Date"], combined["Temp_Max"], color="blue", label="Max Temp (°C)")
+        ax1.set_xlabel("Date")
+        ax1.set_ylabel("Flu Cases", color="red")
+        ax2.set_ylabel("Temperature (°C)", color="blue")
+        st.pyplot(fig)
+    else:
+        st.error("Failed to fetch weather data. Try again later.")
 else:
-    st.info("Please upload both datasets to proceed.")
+    st.info("Please upload a flu dataset to begin.")
